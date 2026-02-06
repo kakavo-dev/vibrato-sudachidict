@@ -15,7 +15,7 @@ The workflow does the following:
 2. Detects dictionary version from `sudachi-dictionary-<YYYYMMDD>-full.zip`.
 3. Downloads raw dictionary sources from `sudachidict-raw`.
 4. Concatenates `small_lex.csv`, `core_lex.csv`, and `notcore_lex.csv`.
-5. Normalizes `POS`/`CType`/`CForm` to `jpreprocess`-safe values while keeping source fields as much as possible.
+5. Rebuilds feature columns as `surface + IPADIC-compatible 9 fields` and normalizes `POS`/`CType`/`CForm` for `jpreprocess`.
 6. Resolves `Sudachi` version from SudachiDict `build.gradle`.
 7. Fetches `char.def` and `unk.def` from `WorksApplications/Sudachi` at the resolved version tag.
 8. Compiles a Vibrato dictionary using `daac-tools/vibrato@v0.5.2`.
@@ -27,8 +27,26 @@ The workflow does the following:
 
 - Compatibility target: `jpreprocess`
 - Compatibility mode: `safe-normalized`
+- Feature schema: `surface+ipadic9-v2`
 - Unknown or unsupported details are safely downgraded to `*` (or fixed safe POS tuples).
 - As a tradeoff, original Sudachi detail granularity is partially simplified.
+
+## Feature schema
+
+`lex.csv` output keeps `surface,left_id,right_id,cost` as-is, then rebuilds feature slots as:
+
+1. `surface` (same as lexical surface; downstream strips this first slot)
+2. `pos1` (from Sudachi `col5`, normalized)
+3. `pos2` (from Sudachi `col6`, normalized tuple output)
+4. `pos3` (from Sudachi `col7`, normalized tuple output)
+5. `pos4` (from Sudachi `col8`, normalized tuple output)
+6. `ctype` (from Sudachi `col9`, normalized)
+7. `cform` (from Sudachi `col10`, normalized)
+8. `base` (from Sudachi `col4`)
+9. `read` (from Sudachi `col11`, empty => `*`)
+10. `pron` (same as `read`, empty => `*`)
+
+Sudachi source details from `col12` and later are appended after `pron` in fixed order.
 
 ## Latest resolution policy
 
@@ -58,6 +76,7 @@ If the same tag already exists, the workflow updates that release and replaces t
 - `vibrato_ref`
 - `compat_target`
 - `compat_mode`
+- `feature_schema`
 - `normalized_pos_rows`
 - `fallback_ctype_rows`
 - `fallback_cform_rows`

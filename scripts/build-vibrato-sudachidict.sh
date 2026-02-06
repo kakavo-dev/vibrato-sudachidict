@@ -9,6 +9,7 @@ EDITION="full"
 RAW_BASE_URL="https://d2ej7fkh96fzlu.cloudfront.net/sudachidict-raw"
 COMPAT_TARGET="jpreprocess"
 COMPAT_MODE="safe-normalized"
+FEATURE_SCHEMA="surface+ipadic9-v2"
 
 WORK_BASE="$(mktemp -d "${RUNNER_TEMP:-/tmp}/vibrato-sudachidict.XXXXXX")"
 RAW_DIR="${WORK_BASE}/raw"
@@ -169,7 +170,9 @@ cat "${SMALL_CSV}" "${CORE_CSV}" "${NOTCORE_CSV}" > "${LEXICON_RAW_PATH}"
 
 # Sudachi lexicon can include split-only entries with negative connection ids.
 # Vibrato's compile expects non-negative u16 ids, so those rows are skipped.
-# Additionally, details columns are normalized for jpreprocess compatibility.
+# Details columns are normalized for jpreprocess compatibility and feature
+# columns are rebuilt as:
+# surface,pos1,pos2,pos3,pos4,ctype,cform,base,read,pron
 ruby -rcsv -e '
 input_path, output_path, stats_path = ARGV
 skipped_negative_conn_ids = 0
@@ -377,9 +380,10 @@ end
 CSV.open(output_path, "w", row_sep: "\n", force_quotes: false) do |w|
   CSV.foreach(input_path, encoding: "UTF-8") do |row|
     next if row.nil? || row.empty?
-    if row.length < 10
+    if row.length < 11
       raise "invalid lex row (too few columns): #{row.inspect}"
     end
+    original = row.dup
     left = Integer(row[1], 10)
     right = Integer(row[2], 10)
     # row[3] should be parseable as cost even if we do not use it here.
@@ -389,28 +393,38 @@ CSV.open(output_path, "w", row_sep: "\n", force_quotes: false) do |w|
       next
     end
 
-    original_pos = row.values_at(4, 5, 6, 7)
-    normalized_pos = normalize_pos(row[4].to_s.strip)
+    original_pos = original.values_at(5, 6, 7, 8).map do |value|
+      text = value.to_s.strip
+      text.empty? ? "*" : text
+    end
+    normalized_pos = normalize_pos(original[5].to_s.strip)
     if original_pos != normalized_pos
       normalized_pos_rows += 1
-      row[4], row[5], row[6], row[7] = normalized_pos
     end
 
-    ctype, ctype_fallback = normalize_ctype(row[8])
-    row[8] = ctype
+    ctype, ctype_fallback = normalize_ctype(original[9])
     fallback_ctype_rows += 1 if ctype_fallback
 
-    cform, cform_fallback = normalize_cform(row[9])
-    row[9] = cform
+    cform, cform_fallback = normalize_cform(original[10])
     fallback_cform_rows += 1 if cform_fallback
 
-    [11, 12].each do |index|
-      next if index >= row.length
-      value = row[index]
-      row[index] = "*" if value.nil? || value.strip.empty?
-    end
+    base = original[4].to_s.strip
+    base = "*" if base.empty?
 
-    w << row
+    read = original[11].to_s.strip
+    read = "*" if read.empty?
+    pron = read
+
+    extra = original.length > 12 ? original[12..] : []
+    output_row = [
+      original[0], original[1], original[2], original[3],
+      original[0],
+      normalized_pos[0], normalized_pos[1], normalized_pos[2], normalized_pos[3],
+      ctype, cform, base, read, pron,
+      *extra
+    ]
+
+    w << output_row
     written += 1
   end
 end
@@ -480,6 +494,7 @@ cat > "${BUNDLE_DIR}/metadata.json" <<EOF
   "vibrato_ref": "${VIBRATO_REF}",
   "compat_target": "${COMPAT_TARGET}",
   "compat_mode": "${COMPAT_MODE}",
+  "feature_schema": "${FEATURE_SCHEMA}",
   "normalized_pos_rows": ${normalized_pos_rows},
   "fallback_ctype_rows": ${fallback_ctype_rows},
   "fallback_cform_rows": ${fallback_cform_rows},
@@ -508,6 +523,7 @@ if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
     echo "vibrato_ref=${VIBRATO_REF}"
     echo "compat_target=${COMPAT_TARGET}"
     echo "compat_mode=${COMPAT_MODE}"
+    echo "feature_schema=${FEATURE_SCHEMA}"
     echo "normalized_pos_rows=${normalized_pos_rows}"
     echo "fallback_ctype_rows=${fallback_ctype_rows}"
     echo "fallback_cform_rows=${fallback_cform_rows}"
