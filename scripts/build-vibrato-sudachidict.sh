@@ -45,6 +45,67 @@ decode_repo_file() {
     > "${out}"
 }
 
+sanitize_char_def_for_vibrato() {
+  local in_path="$1"
+  local out_path="$2"
+
+  awk '
+  {
+    line = $0
+    sub(/\r$/, "", line)
+
+    if (line ~ /^[[:space:]]*$/ || line ~ /^[[:space:]]*#/) {
+      print line
+      next
+    }
+
+    if (line ~ /^[[:space:]]*0x[0-9A-Fa-f]+(\.\.0x[0-9A-Fa-f]+)?[[:space:]]+/) {
+      comment = ""
+      body = line
+      cidx = index(body, "#")
+      if (cidx > 0) {
+        comment = substr(body, cidx)
+        body = substr(body, 1, cidx - 1)
+      }
+
+      token_count = split(body, raw, /[[:space:]]+/)
+      n = 0
+      for (i = 1; i <= token_count; i++) {
+        if (raw[i] != "") {
+          n++
+          tok[n] = raw[i]
+        }
+      }
+
+      if (n >= 2) {
+        out = tok[1]
+        kept = 0
+        for (i = 2; i <= n; i++) {
+          if (tok[i] == "NOOOVBOW") {
+            continue
+          }
+          out = out " " tok[i]
+          kept++
+        }
+
+        # If a line becomes category-less after stripping NOOOVBOW, skip it
+        # and keep the category from previous range lines.
+        if (kept == 0) {
+          next
+        }
+
+        if (comment != "") {
+          out = out " " comment
+        }
+        print out
+        next
+      }
+    }
+
+    print line
+  }' "${in_path}" > "${out_path}"
+}
+
 echo "[build] resolve latest SudachiDict release"
 SUDACHIDICT_RELEASE_TAG="$(gh api "repos/${SUDACHIDICT_REPO}/releases/latest" --jq '.tag_name')"
 FULL_ASSET_NAME="$(
@@ -131,8 +192,10 @@ warn "[build] lex rows: written=#{written}, skipped_negative_conn_ids=#{skipped}
 ' "${LEXICON_RAW_PATH}" "${LEXICON_PATH}"
 
 CHAR_DEF="${BUILD_DIR}/char.def"
+CHAR_DEF_RAW="${BUILD_DIR}/char.raw.def"
 UNK_DEF="${BUILD_DIR}/unk.def"
-decode_repo_file "${SUDACHI_REPO}" "src/main/resources/char.def" "${SUDACHI_TAG}" "${CHAR_DEF}"
+decode_repo_file "${SUDACHI_REPO}" "src/main/resources/char.def" "${SUDACHI_TAG}" "${CHAR_DEF_RAW}"
+sanitize_char_def_for_vibrato "${CHAR_DEF_RAW}" "${CHAR_DEF}"
 decode_repo_file "${SUDACHI_REPO}" "src/main/resources/unk.def" "${SUDACHI_TAG}" "${UNK_DEF}"
 
 SUDACHIDICT_LICENSE="${BUILD_DIR}/LICENSE-2.0.txt"
