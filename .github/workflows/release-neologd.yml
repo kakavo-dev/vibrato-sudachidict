@@ -23,13 +23,15 @@ jobs:
             git \
             curl \
             gh \
-            ruby \
-            nodejs \
             unzip \
             xz-utils
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Test Rust converter
+        run: |
+          cargo test --manifest-path ./tools/sudachi-vibrato-converter/Cargo.toml
 
       - name: Build Vibrato dictionary from latest SudachiDict full
         id: build
