@@ -99,8 +99,36 @@ if [[ -z "${SMALL_CSV}" || -z "${CORE_CSV}" || -z "${NOTCORE_CSV}" || -z "${MATR
   exit 1
 fi
 
+LEXICON_RAW_PATH="${BUILD_DIR}/lex.raw.csv"
 LEXICON_PATH="${BUILD_DIR}/lex.csv"
-cat "${SMALL_CSV}" "${CORE_CSV}" "${NOTCORE_CSV}" > "${LEXICON_PATH}"
+cat "${SMALL_CSV}" "${CORE_CSV}" "${NOTCORE_CSV}" > "${LEXICON_RAW_PATH}"
+
+# Sudachi lexicon can include split-only entries with negative connection ids.
+# Vibrato's compile expects non-negative u16 ids, so those rows are skipped.
+ruby -rcsv -e '
+input_path, output_path = ARGV
+skipped = 0
+written = 0
+CSV.open(output_path, "w", row_sep: "\n", force_quotes: false) do |w|
+  CSV.foreach(input_path, encoding: "UTF-8") do |row|
+    next if row.nil? || row.empty?
+    if row.length < 4
+      raise "invalid lex row (too few columns): #{row.inspect}"
+    end
+    left = Integer(row[1], 10)
+    right = Integer(row[2], 10)
+    # row[3] should be parseable as cost even if we do not use it here.
+    Integer(row[3], 10)
+    if left < 0 || right < 0
+      skipped += 1
+      next
+    end
+    w << row
+    written += 1
+  end
+end
+warn "[build] lex rows: written=#{written}, skipped_negative_conn_ids=#{skipped}"
+' "${LEXICON_RAW_PATH}" "${LEXICON_PATH}"
 
 CHAR_DEF="${BUILD_DIR}/char.def"
 UNK_DEF="${BUILD_DIR}/unk.def"
