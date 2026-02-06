@@ -7,6 +7,8 @@ VIBRATO_REPO="https://github.com/daac-tools/vibrato.git"
 VIBRATO_REF="v0.5.2"
 EDITION="full"
 RAW_BASE_URL="https://d2ej7fkh96fzlu.cloudfront.net/sudachidict-raw"
+COMPAT_TARGET="jpreprocess"
+COMPAT_MODE="safe-normalized"
 
 WORK_BASE="$(mktemp -d "${RUNNER_TEMP:-/tmp}/vibrato-sudachidict.XXXXXX")"
 RAW_DIR="${WORK_BASE}/raw"
@@ -162,18 +164,220 @@ fi
 
 LEXICON_RAW_PATH="${BUILD_DIR}/lex.raw.csv"
 LEXICON_PATH="${BUILD_DIR}/lex.csv"
+NORM_STATS_PATH="${BUILD_DIR}/normalization_stats.env"
 cat "${SMALL_CSV}" "${CORE_CSV}" "${NOTCORE_CSV}" > "${LEXICON_RAW_PATH}"
 
 # Sudachi lexicon can include split-only entries with negative connection ids.
 # Vibrato's compile expects non-negative u16 ids, so those rows are skipped.
+# Additionally, details columns are normalized for jpreprocess compatibility.
 ruby -rcsv -e '
-input_path, output_path = ARGV
-skipped = 0
+input_path, output_path, stats_path = ARGV
+skipped_negative_conn_ids = 0
 written = 0
+normalized_pos_rows = 0
+fallback_ctype_rows = 0
+fallback_cform_rows = 0
+
+ALLOWED_CTYPE = [
+  "*",
+  "ラ変",
+  "不変化型",
+  "カ変・クル",
+  "カ変・来ル",
+  "サ変・スル",
+  "サ変・−スル",
+  "サ変・−ズル",
+  "一段",
+  "一段・病メル",
+  "一段・クレル",
+  "一段・得ル",
+  "一段・ル",
+  "下二・ア行",
+  "下二・カ行",
+  "下二・ガ行",
+  "下二・サ行",
+  "下二・ザ行",
+  "下二・タ行",
+  "下二・ダ行",
+  "下二・ナ行",
+  "下二・ハ行",
+  "下二・バ行",
+  "下二・マ行",
+  "下二・ヤ行",
+  "下二・ラ行",
+  "下二・ワ行",
+  "下二・得",
+  "形容詞・アウオ段",
+  "形容詞・イ段",
+  "形容詞・イイ",
+  "五段・カ行イ音便",
+  "五段・カ行促音便",
+  "五段・カ行促音便ユク",
+  "五段・ガ行",
+  "五段・サ行",
+  "五段・タ行",
+  "五段・ナ行",
+  "五段・バ行",
+  "五段・マ行",
+  "五段・ラ行",
+  "五段・ラ行アル",
+  "五段・ラ行特殊",
+  "五段・ワ行ウ音便",
+  "五段・ワ行促音便",
+  "四段・カ行",
+  "四段・ガ行",
+  "四段・サ行",
+  "四段・タ行",
+  "四段・バ行",
+  "四段・マ行",
+  "四段・ラ行",
+  "四段・ハ行",
+  "上二・ダ行",
+  "上二・ハ行",
+  "特殊・ナイ",
+  "特殊・タイ",
+  "特殊・タ",
+  "特殊・ダ",
+  "特殊・デス",
+  "特殊・ドス",
+  "特殊・ジャ",
+  "特殊・マス",
+  "特殊・ヌ",
+  "特殊・ヤ",
+  "文語・ベシ",
+  "文語・ゴトシ",
+  "文語・ナリ",
+  "文語・マジ",
+  "文語・シム",
+  "文語・キ",
+  "文語・ケリ",
+  "文語・ル",
+  "文語・リ",
+].to_h { |v| [v, true] }.freeze
+
+ALLOWED_CFORM = [
+  "*",
+  "ガル接続",
+  "音便基本形",
+  "仮定形",
+  "仮定縮約１",
+  "仮定縮約２",
+  "基本形",
+  "基本形-促音便",
+  "現代基本形",
+  "体言接続",
+  "体言接続特殊",
+  "体言接続特殊２",
+  "文語基本形",
+  "未然ウ接続",
+  "未然ヌ接続",
+  "未然レル接続",
+  "未然形",
+  "未然特殊",
+  "命令ｅ",
+  "命令ｉ",
+  "命令ｒｏ",
+  "命令ｙｏ",
+  "連用ゴザイ接続",
+  "連用タ接続",
+  "連用テ接続",
+  "連用デ接続",
+  "連用ニ接続",
+  "連用形",
+].to_h { |v| [v, true] }.freeze
+
+def normalize_pos(pos0)
+  case pos0
+  when "名詞", "代名詞", "形状詞", "接尾辞"
+    ["名詞", "一般", "*", "*"]
+  when "動詞"
+    ["動詞", "自立", "*", "*"]
+  when "形容詞"
+    ["形容詞", "自立", "*", "*"]
+  when "助詞"
+    ["助詞", "格助詞", "一般", "*"]
+  when "助動詞"
+    ["助動詞", "*", "*", "*"]
+  when "副詞"
+    ["副詞", "一般", "*", "*"]
+  when "接続詞"
+    ["接続詞", "*", "*", "*"]
+  when "連体詞"
+    ["連体詞", "*", "*", "*"]
+  when "感動詞"
+    ["感動詞", "*", "*", "*"]
+  when "接頭辞", "接頭詞"
+    ["接頭詞", "名詞接続", "*", "*"]
+  when "記号", "補助記号", "空白"
+    ["記号", "一般", "*", "*"]
+  when "フィラー"
+    ["フィラー", "*", "*", "*"]
+  else
+    ["その他", "*", "*", "*"]
+  end
+end
+
+def normalize_ctype(value)
+  src = value.to_s.strip
+  src = "*" if src.empty?
+  canonical = src.gsub(/[[:space:]]+/, "")
+  canonical = canonical.tr("　", "")
+  canonical = canonical.gsub(/[\-－−]/, "・")
+
+  canonical = "五段・ワ行ウ音便" if canonical == "五段・ワア行"
+  canonical = canonical.sub(/^サ変・スル$/, "サ変・−スル")
+  canonical = canonical.sub(/^サ変・ズル$/, "サ変・−ズル")
+  canonical = canonical.sub(/^サ変・ｰスル$/, "サ変・−スル")
+  canonical = canonical.sub(/^サ変・ｰズル$/, "サ変・−ズル")
+  canonical = canonical.sub(/^サ変・ースル$/, "サ変・−スル")
+  canonical = canonical.sub(/^サ変・ーズル$/, "サ変・−ズル")
+  canonical = canonical.sub(/^サ変・・スル$/, "サ変・−スル")
+  canonical = canonical.sub(/^サ変・・ズル$/, "サ変・−ズル")
+
+  if ALLOWED_CTYPE.key?(canonical)
+    [canonical, false]
+  else
+    fallback = src != "*"
+    ["*", fallback]
+  end
+end
+
+def normalize_cform(value)
+  src = value.to_s.strip
+  src = "*" if src.empty?
+  canonical = src.gsub(/[[:space:]]+/, "")
+  canonical = canonical.tr("　", "")
+
+  canonical =
+    case canonical
+    when /\A終止形.*\z/, /\A連体形.*\z/, "終止連体形"
+      "基本形"
+    when /\A連用形.*\z/
+      "連用形"
+    when /\A未然形.*\z/
+      "未然形"
+    when /\A仮定形.*\z/
+      "仮定形"
+    when /\A命令形.*\z/
+      "命令ｙｏ"
+    when "意志推量形"
+      "未然ウ接続"
+    else
+      canonical
+    end
+
+  if ALLOWED_CFORM.key?(canonical)
+    [canonical, false]
+  else
+    fallback = src != "*"
+    ["*", fallback]
+  end
+end
+
 CSV.open(output_path, "w", row_sep: "\n", force_quotes: false) do |w|
   CSV.foreach(input_path, encoding: "UTF-8") do |row|
     next if row.nil? || row.empty?
-    if row.length < 4
+    if row.length < 10
       raise "invalid lex row (too few columns): #{row.inspect}"
     end
     left = Integer(row[1], 10)
@@ -181,15 +385,49 @@ CSV.open(output_path, "w", row_sep: "\n", force_quotes: false) do |w|
     # row[3] should be parseable as cost even if we do not use it here.
     Integer(row[3], 10)
     if left < 0 || right < 0
-      skipped += 1
+      skipped_negative_conn_ids += 1
       next
     end
+
+    original_pos = row.values_at(4, 5, 6, 7)
+    normalized_pos = normalize_pos(row[4].to_s.strip)
+    if original_pos != normalized_pos
+      normalized_pos_rows += 1
+      row[4], row[5], row[6], row[7] = normalized_pos
+    end
+
+    ctype, ctype_fallback = normalize_ctype(row[8])
+    row[8] = ctype
+    fallback_ctype_rows += 1 if ctype_fallback
+
+    cform, cform_fallback = normalize_cform(row[9])
+    row[9] = cform
+    fallback_cform_rows += 1 if cform_fallback
+
+    [11, 12].each do |index|
+      next if index >= row.length
+      value = row[index]
+      row[index] = "*" if value.nil? || value.strip.empty?
+    end
+
     w << row
     written += 1
   end
 end
-warn "[build] lex rows: written=#{written}, skipped_negative_conn_ids=#{skipped}"
-' "${LEXICON_RAW_PATH}" "${LEXICON_PATH}"
+
+File.write(
+  stats_path,
+  [
+    "written=#{written}",
+    "skipped_negative_conn_ids=#{skipped_negative_conn_ids}",
+    "normalized_pos_rows=#{normalized_pos_rows}",
+    "fallback_ctype_rows=#{fallback_ctype_rows}",
+    "fallback_cform_rows=#{fallback_cform_rows}",
+  ].join("\n") + "\n",
+)
+warn "[build] lex rows: written=#{written}, skipped_negative_conn_ids=#{skipped_negative_conn_ids}, normalized_pos_rows=#{normalized_pos_rows}, fallback_ctype_rows=#{fallback_ctype_rows}, fallback_cform_rows=#{fallback_cform_rows}"
+' "${LEXICON_RAW_PATH}" "${LEXICON_PATH}" "${NORM_STATS_PATH}"
+source "${NORM_STATS_PATH}"
 
 CHAR_DEF="${BUILD_DIR}/char.def"
 CHAR_DEF_RAW="${BUILD_DIR}/char.raw.def"
@@ -240,6 +478,11 @@ cat > "${BUNDLE_DIR}/metadata.json" <<EOF
   "sudachi_version": "${SUDACHI_VERSION}",
   "sudachi_tag": "${SUDACHI_TAG}",
   "vibrato_ref": "${VIBRATO_REF}",
+  "compat_target": "${COMPAT_TARGET}",
+  "compat_mode": "${COMPAT_MODE}",
+  "normalized_pos_rows": ${normalized_pos_rows},
+  "fallback_ctype_rows": ${fallback_ctype_rows},
+  "fallback_cform_rows": ${fallback_cform_rows},
   "built_at_utc": "${BUILT_AT_UTC}",
   "dictionary_file": "system.dic.zst"
 }
@@ -263,6 +506,11 @@ if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
     echo "sudachidict_release_tag=${SUDACHIDICT_RELEASE_TAG}"
     echo "sudachi_version=${SUDACHI_VERSION}"
     echo "vibrato_ref=${VIBRATO_REF}"
+    echo "compat_target=${COMPAT_TARGET}"
+    echo "compat_mode=${COMPAT_MODE}"
+    echo "normalized_pos_rows=${normalized_pos_rows}"
+    echo "fallback_ctype_rows=${fallback_ctype_rows}"
+    echo "fallback_cform_rows=${fallback_cform_rows}"
     echo "built_at_utc=${BUILT_AT_UTC}"
   } >> "${GITHUB_OUTPUT}"
 fi
