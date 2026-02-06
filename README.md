@@ -1,12 +1,14 @@
-# vibrato-ipadic-neologd
+# vibrato-sudachidict
 
 Build and release the latest `SudachiDict` (`full` edition) as a Vibrato system dictionary.
 Dictionary resources are converted by a Rust tool (`tools/sudachi-vibrato-converter`).
 
 ## Workflow
 
-- Workflow file: `.github/workflows/release-neologd.yml`
-- Trigger: `workflow_dispatch` only
+- Workflow file: `.github/workflows/release-sudachi.yml`
+- Trigger:
+  - `workflow_dispatch` (manual)
+  - `schedule` daily (`0 0 * * *`, UTC)
 - Permissions: `contents: write`
 
 The workflow does the following:
@@ -21,7 +23,15 @@ The workflow does the following:
 8. Compiles a Vibrato dictionary using `daac-tools/vibrato@v0.5.2`.
 9. Runs a tokenize smoke test.
 10. Packages `system.dic.zst`, `metadata.json`, `LICENSE-2.0.txt`, and `LEGAL` into one `tar.xz`.
-11. Creates or updates the GitHub Release for the source-fixed tag.
+11. For scheduled runs, checks whether the latest SudachiDict tag is already released in this repository.
+12. Creates or updates the GitHub Release only when needed.
+
+## Automatic update detection
+
+- GitHub Actions cannot directly subscribe to external repository release events.
+- This repository polls `WorksApplications/SudachiDict` once per day.
+- If the derived release tag already exists, the workflow exits via a skip job.
+- Manual runs always build and upload with `--clobber`, even when the tag already exists.
 
 ## Compatibility policy
 

@@ -1,0 +1,164 @@
+name: release-sudachi
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  precheck:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    outputs:
+      should_build: ${{ steps.precheck.outputs.should_build }}
+      candidate_release_tag: ${{ steps.precheck.outputs.candidate_release_tag }}
+      dict_version: ${{ steps.precheck.outputs.dict_version }}
+      reason: ${{ steps.precheck.outputs.reason }}
+    steps:
+      - name: Resolve latest SudachiDict and build decision
+        id: precheck
+        run: |
+          set -euo pipefail
+
+          EVENT_NAME="${{ github.event_name }}"
+          LATEST_JSON="$(gh api repos/WorksApplications/SudachiDict/releases/latest)"
+          FULL_ASSET_NAME="$(
+            echo "${LATEST_JSON}" \
+              | jq -r '.assets[] | select(.name | test("^sudachi-dictionary-[0-9]{8}-full\\.zip$")) | .name' \
+              | head -n 1
+          )"
+
+          if [[ -z "${FULL_ASSET_NAME}" ]]; then
+            echo "[error] full edition asset not found in latest SudachiDict release." >&2
+            exit 1
+          fi
+
+          DICT_VERSION="$(echo "${FULL_ASSET_NAME}" | sed -E 's/^sudachi-dictionary-([0-9]{8})-full\.zip$/\1/')"
+          if [[ ! "${DICT_VERSION}" =~ ^[0-9]{8}$ ]]; then
+            echo "[error] failed to parse dict version from asset name: ${FULL_ASSET_NAME}" >&2
+            exit 1
+          fi
+
+          RELEASE_TAG="sudachi-${DICT_VERSION}-full-vibrato-v0_5_2"
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            TAG_EXISTS="true"
+          else
+            TAG_EXISTS="false"
+          fi
+
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            SHOULD_BUILD="true"
+            REASON="manual_dispatch"
+          elif [[ "${TAG_EXISTS}" == "false" ]]; then
+            SHOULD_BUILD="true"
+            REASON="new_release_detected"
+          else
+            SHOULD_BUILD="false"
+            REASON="already_released"
+          fi
+
+          {
+            echo "should_build=${SHOULD_BUILD}"
+            echo "candidate_release_tag=${RELEASE_TAG}"
+            echo "dict_version=${DICT_VERSION}"
+            echo "reason=${REASON}"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "should_build=${SHOULD_BUILD}"
+          echo "candidate_release_tag=${RELEASE_TAG}"
+          echo "reason=${REASON}"
+
+  release:
+    needs: precheck
+    if: ${{ needs.precheck.outputs.should_build == 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git \
+            curl \
+            gh \
+            unzip \
+            xz-utils
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Test Rust converter
+        run: |
+          cargo test --manifest-path ./tools/sudachi-vibrato-converter/Cargo.toml
+
+      - name: Build Vibrato dictionary from latest SudachiDict full
+        id: build
+        run: |
+          chmod +x ./scripts/build-vibrato-sudachidict.sh
+          ./scripts/build-vibrato-sudachidict.sh
+
+      - name: Prepare release notes
+        id: notes
+        run: |
+          NOTES_FILE="${RUNNER_TEMP}/release_notes.md"
+          cat > "${NOTES_FILE}" <<EOF
+          This release is generated from the latest SudachiDict release (trigger: ${{ github.event_name }}).
+
+          - dict_version: ${{ steps.build.outputs.dict_version }}
+          - edition: ${{ steps.build.outputs.edition }}
+          - sudachidict_release_tag: ${{ steps.build.outputs.sudachidict_release_tag }}
+          - sudachi_version: ${{ steps.build.outputs.sudachi_version }}
+          - vibrato_ref: ${{ steps.build.outputs.vibrato_ref }}
+          - compat_target: ${{ steps.build.outputs.compat_target }}
+          - compat_mode: ${{ steps.build.outputs.compat_mode }}
+          - feature_schema: ${{ steps.build.outputs.feature_schema }}
+          - normalized_pos_rows: ${{ steps.build.outputs.normalized_pos_rows }}
+          - fallback_ctype_rows: ${{ steps.build.outputs.fallback_ctype_rows }}
+          - fallback_cform_rows: ${{ steps.build.outputs.fallback_cform_rows }}
+          - built_at_utc: ${{ steps.build.outputs.built_at_utc }}
+          EOF
+          echo "notes_file=${NOTES_FILE}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.build.outputs.release_tag }}
+          RELEASE_TITLE: ${{ steps.build.outputs.release_title }}
+          ASSET_PATH: ${{ steps.build.outputs.asset_path }}
+          NOTES_FILE: ${{ steps.notes.outputs.notes_file }}
+        run: |
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" "${ASSET_PATH}" --clobber
+            gh release edit "${RELEASE_TAG}" --title "${RELEASE_TITLE}" --notes-file "${NOTES_FILE}"
+          else
+            gh release create "${RELEASE_TAG}" "${ASSET_PATH}" --title "${RELEASE_TITLE}" --notes-file "${NOTES_FILE}"
+          fi
+
+      - name: Upload workflow artifact
+        if: ${{ !env.ACT }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.release_tag }}
+          path: ${{ steps.build.outputs.asset_path }}
+          if-no-files-found: error
+
+  skip:
+    needs: precheck
+    if: ${{ needs.precheck.outputs.should_build != 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip build when latest SudachiDict was already released
+        run: |
+          echo "No new SudachiDict release; skipped."
+          echo "candidate_release_tag=${{ needs.precheck.outputs.candidate_release_tag }}"
+          echo "dict_version=${{ needs.precheck.outputs.dict_version }}"
+          echo "reason=${{ needs.precheck.outputs.reason }}"
