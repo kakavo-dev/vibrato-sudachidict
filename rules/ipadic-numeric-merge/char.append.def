@@ -1,6 +1,5 @@
-# Numeric-first overrides.
-# Keep digit and decimal-point runs as one unknown token while splitting alpha<->digit boundaries.
+# Minimal overrides for jpreprocess numeric reading compatibility.
+# Keep Sudachi defaults and only disable NUMERIC grouping.
+NUMERIC 1 0 0
 0x0030..0x0039 NUMERIC
 0xFF10..0xFF19 NUMERIC
-0x002E NUMERIC
-0xFF0E NUMERIC

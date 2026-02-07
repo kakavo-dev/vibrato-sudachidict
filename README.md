@@ -57,19 +57,21 @@ Default release build uses profile: `rules/ipadic-numeric-merge`:
 - `rules/ipadic-numeric-merge/unk.append.def`
 - `rules/ipadic-numeric-merge/rewrite.append.def`
 
-This profile prioritizes numeric runs for unknown grouping:
+This profile is a minimal override for `jpreprocess` numeric reading compatibility:
 
-- `123`
-- `１２３`
-- `1.234`
-- `１．２３４`
+- Keep Sudachi defaults as much as possible.
+- Disable unknown grouping for `NUMERIC` (`NUMERIC 1 0 0`) so digits are split per character.
+- Keep alpha-numeric boundaries split.
+- Keep `.` / `．` as Sudachi default category (`SYMBOL`) instead of forcing `NUMERIC`.
+- Keep `unk.append.def` empty to avoid redundant unknown definitions.
 
-And splits alpha-numeric boundaries:
+Examples:
 
-- `AI2026` -> `AI`, `2026`
-- `ＡＩ2026` -> `ＡＩ`, `2026`
-- `k8s` -> `k`, `8`, `s`
-- `abc123def` -> `abc`, `123`, `def`
+- `123` -> `1`, `2`, `3`
+- `１２３` -> `１`, `２`, `３`
+- `AI2026` -> `AI`, `2`, `0`, `2`, `6`
+- `ＡＩ2026` -> `ＡＩ`, `2`, `0`, `2`, `6`
+- `1e-3` stays non-merged (not a single token).
 
 ## Local runtime test with real SudachiDict
 

@@ -37,7 +37,12 @@ pub fn convert_unknown_dictionary<R: Read, W: Write>(input: R, output: W) -> Res
         parse_i32(&record, 2, "right_id", line_no + 1)?;
         parse_i32(&record, 3, "cost", line_no + 1)?;
 
-        let normalized_pos = normalize_pos(record.get(4).unwrap_or(""));
+        let normalized_pos = normalize_pos(
+            record.get(4).unwrap_or(""),
+            record.get(5).unwrap_or(""),
+            record.get(6).unwrap_or(""),
+            record.get(7).unwrap_or(""),
+        );
         let (ctype, _) = normalize_ctype(record.get(8).unwrap_or(""));
         let (cform, _) = normalize_cform(record.get(9).unwrap_or(""));
 

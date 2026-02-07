@@ -113,6 +113,7 @@ fn ipadic_numeric_merge_rules_prioritize_numeric_and_split_alpha_numeric() -> Re
     let lex_input = "既知語,0,0,100,既知語,名詞,普通名詞,一般,*,*,*,キチゴ,既知語\n";
     let unk_input = concat!(
         "DEFAULT,0,0,100,補助記号,一般,*,*,*,*\n",
+        "SYMBOL,0,0,100,記号,一般,*,*,*,*\n",
         "ALPHA,0,0,100,名詞,普通名詞,一般,*,*,*\n",
         "NUMERIC,0,0,100,名詞,数,*,*,*,*,*\n"
     );
@@ -120,8 +121,11 @@ fn ipadic_numeric_merge_rules_prioritize_numeric_and_split_alpha_numeric() -> Re
         "DEFAULT 0 1 0\n",
         "ALPHA 1 1 0\n",
         "NUMERIC 1 1 0\n",
+        "SYMBOL 1 1 0\n",
         "SPACE 0 1 0\n",
         "0x0020 SPACE\n",
+        "0x002E SYMBOL\n",
+        "0xFF0E SYMBOL\n",
         "0x0030..0x0039 NUMERIC\n",
         "0x0061..0x007A ALPHA\n",
         "0x0041..0x005A ALPHA\n",
@@ -129,15 +133,11 @@ fn ipadic_numeric_merge_rules_prioritize_numeric_and_split_alpha_numeric() -> Re
         "0xFF41..0xFF5A ALPHA\n"
     );
     let char_append = concat!(
+        "NUMERIC 1 0 0\n",
         "0x0030..0x0039 NUMERIC\n",
-        "0xFF10..0xFF19 NUMERIC\n",
-        "0x002E NUMERIC\n",
-        "0xFF0E NUMERIC\n"
+        "0xFF10..0xFF19 NUMERIC\n"
     );
-    let unk_append = concat!(
-        "ALPHA,0,0,100,名詞,普通名詞,一般,*,*,*\n",
-        "NUMERIC,0,0,-32768,名詞,数,*,*,*,*,*\n"
-    );
+    let unk_append = "# empty on purpose\n";
     let matrix_def = "1 1\n0 0 0\n";
 
     let mut stats = ConversionStats::default();
@@ -167,14 +167,40 @@ fn ipadic_numeric_merge_rules_prioritize_numeric_and_split_alpha_numeric() -> Re
     let tokenizer = Tokenizer::new(dict);
     let mut worker = tokenizer.new_worker();
 
-    assert_token_surfaces(&mut worker, "123", &["123"]);
-    assert_token_surfaces(&mut worker, "１２３", &["１２３"]);
-    assert_token_surfaces(&mut worker, "1.234", &["1.234"]);
-    assert_token_surfaces(&mut worker, "１．２３４", &["１．２３４"]);
-    assert_token_surfaces(&mut worker, "AI2026", &["AI", "2026"]);
-    assert_token_surfaces(&mut worker, "ＡＩ2026", &["ＡＩ", "2026"]);
+    assert_token_surfaces(&mut worker, "123", &["1", "2", "3"]);
+    assert_token_pos12(&mut worker, "123", 0, "名詞", "数");
+    assert_token_pos12(&mut worker, "123", 1, "名詞", "数");
+    assert_token_pos12(&mut worker, "123", 2, "名詞", "数");
+    assert_token_surfaces(&mut worker, "１２３", &["１", "２", "３"]);
+    assert_token_pos12(&mut worker, "１２３", 0, "名詞", "数");
+    assert_token_pos12(&mut worker, "１２３", 1, "名詞", "数");
+    assert_token_pos12(&mut worker, "１２３", 2, "名詞", "数");
+    assert_token_surfaces(&mut worker, "1.234", &["1", ".", "2", "3", "4"]);
+    assert_token_pos12(&mut worker, "1.234", 0, "名詞", "数");
+    assert_token_pos12(&mut worker, "1.234", 2, "名詞", "数");
+    assert_token_pos12(&mut worker, "1.234", 3, "名詞", "数");
+    assert_token_pos12(&mut worker, "1.234", 4, "名詞", "数");
+    assert_token_surfaces(&mut worker, "１．２３４", &["１", "．", "２", "３", "４"]);
+    assert_token_pos12(&mut worker, "１．２３４", 0, "名詞", "数");
+    assert_token_pos12(&mut worker, "１．２３４", 2, "名詞", "数");
+    assert_token_pos12(&mut worker, "１．２３４", 3, "名詞", "数");
+    assert_token_pos12(&mut worker, "１．２３４", 4, "名詞", "数");
+    assert_token_surfaces(&mut worker, "AI2026", &["AI", "2", "0", "2", "6"]);
+    assert_token_pos12(&mut worker, "AI2026", 1, "名詞", "数");
+    assert_token_pos12(&mut worker, "AI2026", 2, "名詞", "数");
+    assert_token_pos12(&mut worker, "AI2026", 3, "名詞", "数");
+    assert_token_pos12(&mut worker, "AI2026", 4, "名詞", "数");
+    assert_token_surfaces(&mut worker, "ＡＩ2026", &["ＡＩ", "2", "0", "2", "6"]);
+    assert_token_pos12(&mut worker, "ＡＩ2026", 1, "名詞", "数");
+    assert_token_pos12(&mut worker, "ＡＩ2026", 2, "名詞", "数");
+    assert_token_pos12(&mut worker, "ＡＩ2026", 3, "名詞", "数");
+    assert_token_pos12(&mut worker, "ＡＩ2026", 4, "名詞", "数");
     assert_token_surfaces(&mut worker, "k8s", &["k", "8", "s"]);
-    assert_token_surfaces(&mut worker, "abc123def", &["abc", "123", "def"]);
+    assert_token_pos12(&mut worker, "k8s", 1, "名詞", "数");
+    assert_token_surfaces(&mut worker, "abc123def", &["abc", "1", "2", "3", "def"]);
+    assert_token_pos12(&mut worker, "abc123def", 1, "名詞", "数");
+    assert_token_pos12(&mut worker, "abc123def", 2, "名詞", "数");
+    assert_token_pos12(&mut worker, "abc123def", 3, "名詞", "数");
 
     let scientific = token_surfaces(&mut worker, "1e-3");
     assert_ne!(scientific, vec!["1e-3"]);
@@ -201,4 +227,24 @@ fn token_surfaces(
     (0..worker.num_tokens())
         .map(|i| worker.token(i).surface().to_string())
         .collect()
+}
+
+fn assert_token_pos12(
+    worker: &mut vibrato::tokenizer::worker::Worker<'_>,
+    sentence: &str,
+    token_index: usize,
+    expected_pos1: &str,
+    expected_pos2: &str,
+) {
+    worker.reset_sentence(sentence);
+    worker.tokenize();
+    assert!(
+        token_index < worker.num_tokens(),
+        "token index {token_index} out of range for sentence: {sentence}"
+    );
+    let feature = worker.token(token_index).feature();
+    let fields: Vec<&str> = feature.split(',').collect();
+    assert!(fields.len() >= 2, "unexpected feature format: {feature}");
+    assert_eq!(fields[0], expected_pos1, "pos1 mismatch for {sentence}");
+    assert_eq!(fields[1], expected_pos2, "pos2 mismatch for {sentence}");
 }

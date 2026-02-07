@@ -146,8 +146,28 @@ fn unk_definition_can_append_custom_rows_with_normalization() -> Result<()> {
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[1][0], "NUMERIC");
     assert_eq!(rows[1][4], "名詞");
-    assert_eq!(rows[1][5], "一般");
+    assert_eq!(rows[1][5], "数");
     assert_eq!(rows[1][10], "*");
+    Ok(())
+}
+
+#[test]
+fn lex_numeric_pos_is_normalized_to_meishi_kazu() -> Result<()> {
+    let input = "123,1,2,3,123,名詞,数詞,*,*,*,*,ヒャクニジュウサン\n";
+
+    let mut output = Vec::new();
+    let mut stats = ConversionStats::default();
+    convert_lexicon(Cursor::new(input.as_bytes()), &mut output, &mut stats)?;
+
+    let rows = parse_csv_rows(&output)?;
+    assert_eq!(rows.len(), 1);
+
+    let row = &rows[0];
+    assert_eq!(row[0], "123");
+    assert_eq!(row[4], "名詞");
+    assert_eq!(row[5], "数");
+    assert_eq!(row[6], "*");
+    assert_eq!(row[7], "*");
     Ok(())
 }
 

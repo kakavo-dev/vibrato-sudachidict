@@ -117,11 +117,20 @@ static ALLOWED_CFORM: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     .collect()
 });
 
-pub fn normalize_pos(pos0: &str) -> [String; 4] {
-    match pos0.trim() {
+pub fn normalize_pos(pos0: &str, pos1: &str, pos2: &str, pos3: &str) -> [String; 4] {
+    let pos0 = pos0.trim();
+    let pos1 = pos1.trim();
+    let pos2 = pos2.trim();
+    let pos3 = pos3.trim();
+
+    match pos0 {
         "名詞" | "代名詞" | "形状詞" | "接尾辞" => [
             "名詞".to_string(),
-            "一般".to_string(),
+            if is_numeric_subpos(pos1, pos2, pos3) {
+                "数".to_string()
+            } else {
+                "一般".to_string()
+            },
             "*".to_string(),
             "*".to_string(),
         ],
@@ -181,7 +190,11 @@ pub fn normalize_pos(pos0: &str) -> [String; 4] {
         ],
         "記号" | "補助記号" | "空白" => [
             "記号".to_string(),
-            "一般".to_string(),
+            if is_numeric_subpos(pos1, pos2, pos3) {
+                "数".to_string()
+            } else {
+                "一般".to_string()
+            },
             "*".to_string(),
             "*".to_string(),
         ],
@@ -198,6 +211,12 @@ pub fn normalize_pos(pos0: &str) -> [String; 4] {
             "*".to_string(),
         ],
     }
+}
+
+fn is_numeric_subpos(pos1: &str, pos2: &str, pos3: &str) -> bool {
+    [pos1, pos2, pos3]
+        .into_iter()
+        .any(|v| matches!(v, "数" | "数詞"))
 }
 
 pub fn normalize_ctype(value: &str) -> (String, bool) {

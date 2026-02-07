@@ -48,7 +48,12 @@ pub fn convert_lexicon<R: Read, W: Write>(
             normalize_text_or_star(record.get(8).unwrap_or("")),
         ];
 
-        let normalized_pos = normalize_pos(record.get(5).unwrap_or(""));
+        let normalized_pos = normalize_pos(
+            record.get(5).unwrap_or(""),
+            record.get(6).unwrap_or(""),
+            record.get(7).unwrap_or(""),
+            record.get(8).unwrap_or(""),
+        );
         if original_pos != normalized_pos {
             stats.normalized_pos_rows += 1;
         }

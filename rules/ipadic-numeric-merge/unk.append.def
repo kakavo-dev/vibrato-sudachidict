@@ -1,3 +1,2 @@
-# Additional unknown definitions (Sudachi schema) for alnum/numeric fallback.
-ALPHA,7,7,11633,名詞,普通名詞,一般,*,*,*
-NUMERIC,7,7,-32768,名詞,数,*,*,*,*,*
+# Intentionally empty:
+# use Sudachi's built-in unk.def and keep customizations minimal.
