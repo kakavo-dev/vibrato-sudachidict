@@ -57,15 +57,49 @@ Default release build uses profile: `rules/ipadic-numeric-merge`:
 - `rules/ipadic-numeric-merge/unk.append.def`
 - `rules/ipadic-numeric-merge/rewrite.append.def`
 
-This profile improves unknown grouping for:
+This profile prioritizes numeric runs for unknown grouping:
 
 - `123`
-- `1e3`
-- `k8s`
-- `abc123def`
-- `ＡＩ2026`
+- `１２３`
+- `1.234`
+- `１．２３４`
 
-Symbols (`+ - . _`) are kept split at dictionary level.
+And splits alpha-numeric boundaries:
+
+- `AI2026` -> `AI`, `2026`
+- `ＡＩ2026` -> `ＡＩ`, `2026`
+- `k8s` -> `k`, `8`, `s`
+- `abc123def` -> `abc`, `123`, `def`
+
+## Local runtime test with real SudachiDict
+
+Prepare a local dictionary for runtime smoke tests:
+
+```bash
+./scripts/prepare-local-sudachidict-runtime-test.sh
+```
+
+Offline/asset-only mode is also available:
+
+```bash
+SKIP_BUILD=1 ./scripts/prepare-local-sudachidict-runtime-test.sh
+# or
+ASSET_PATH=/absolute/path/to/sudachidict-*.tar.xz ./scripts/prepare-local-sudachidict-runtime-test.sh
+```
+
+This installs:
+
+- `tools/sudachi-vibrato-converter/target/local-sudachidict/system.dic.zst`
+- `tools/sudachi-vibrato-converter/target/local-sudachidict/metadata.json` (if bundled)
+
+Then run tests:
+
+```bash
+cargo test --manifest-path ./tools/sudachi-vibrato-converter/Cargo.toml
+```
+
+`tests/local_sudachidict_runtime.rs` runs only when the local dictionary file exists.
+You can also override dictionary path via `SUDACHI_VIBRATO_LOCAL_DIC`.
 
 ## Feature schema
 
@@ -114,13 +148,6 @@ Sudachi columns after `col12` are dropped.
 - If it does not exist, build continues without error.
 - `rewrite.def` is bundled for training/compatibility use.
 - Vibrato tokenizer runtime dictionary lookup does not use `rewrite.def`.
-
-## Scientific notation (`1e-3`)
-
-- Dictionary-level policy keeps symbols split, so `1e-3` can still be tokenized as `1e`, `-`, `3`.
-- The converter library provides `merge_scientific_notation_tokens` for strict post-merge.
-- It merges only `[digits+e/E] [+-] [digits]` patterns (e.g., `1e - 3` -> `1e-3`).
-- It does not merge `1 - 3`.
 
 ## Latest resolution policy
 

@@ -1,4 +1,6 @@
-# ipadic-like numeric/alnum merge overrides
-# Keep symbols split. Only allow digit<->alpha bridging by sharing ALPHA on numeric ranges.
-0x0030..0x0039 NUMERIC ALPHA
-0xFF10..0xFF19 NUMERIC ALPHA
+# Numeric-first overrides.
+# Keep digit and decimal-point runs as one unknown token while splitting alpha<->digit boundaries.
+0x0030..0x0039 NUMERIC
+0xFF10..0xFF19 NUMERIC
+0x002E NUMERIC
+0xFF0E NUMERIC

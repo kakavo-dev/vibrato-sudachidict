@@ -5,7 +5,7 @@ use anyhow::{anyhow, Result};
 use jpreprocess_core::word_entry::WordEntry;
 use sudachi_vibrato_converter::{
     append_text_files_as_lines, append_unknown_definitions, convert_char_definition,
-    convert_lexicon, convert_unknown_dictionary, merge_scientific_notation_tokens, ConversionStats,
+    convert_lexicon, convert_unknown_dictionary, ConversionStats,
 };
 use tempfile::tempdir;
 use vibrato::dictionary::{LexType, SystemDictionaryBuilder};
@@ -109,7 +109,7 @@ fn mecab9_feature_to_jpreprocess12(feature: &str) -> Result<Vec<String>> {
 }
 
 #[test]
-fn ipadic_numeric_merge_rules_group_numeric_and_alnum_unknowns() -> Result<()> {
+fn ipadic_numeric_merge_rules_prioritize_numeric_and_split_alpha_numeric() -> Result<()> {
     let lex_input = "既知語,0,0,100,既知語,名詞,普通名詞,一般,*,*,*,キチゴ,既知語\n";
     let unk_input = concat!(
         "DEFAULT,0,0,100,補助記号,一般,*,*,*,*\n",
@@ -128,8 +128,16 @@ fn ipadic_numeric_merge_rules_group_numeric_and_alnum_unknowns() -> Result<()> {
         "0xFF21..0xFF3A ALPHA\n",
         "0xFF41..0xFF5A ALPHA\n"
     );
-    let char_append = "0x0030..0x0039 NUMERIC ALPHA\n0xFF10..0xFF19 NUMERIC ALPHA\n";
-    let unk_append = "ALPHA,0,0,100,名詞,普通名詞,一般,*,*,*\n";
+    let char_append = concat!(
+        "0x0030..0x0039 NUMERIC\n",
+        "0xFF10..0xFF19 NUMERIC\n",
+        "0x002E NUMERIC\n",
+        "0xFF0E NUMERIC\n"
+    );
+    let unk_append = concat!(
+        "ALPHA,0,0,100,名詞,普通名詞,一般,*,*,*\n",
+        "NUMERIC,0,0,-32768,名詞,数,*,*,*,*,*\n"
+    );
     let matrix_def = "1 1\n0 0 0\n";
 
     let mut stats = ConversionStats::default();
@@ -160,19 +168,17 @@ fn ipadic_numeric_merge_rules_group_numeric_and_alnum_unknowns() -> Result<()> {
     let mut worker = tokenizer.new_worker();
 
     assert_token_surfaces(&mut worker, "123", &["123"]);
-    assert_token_surfaces(&mut worker, "1e3", &["1e3"]);
-    assert_token_surfaces(&mut worker, "k8s", &["k8s"]);
-    assert_token_surfaces(&mut worker, "abc123def", &["abc123def"]);
-    assert_token_surfaces(&mut worker, "ＡＩ2026", &["ＡＩ2026"]);
+    assert_token_surfaces(&mut worker, "１２３", &["１２３"]);
+    assert_token_surfaces(&mut worker, "1.234", &["1.234"]);
+    assert_token_surfaces(&mut worker, "１．２３４", &["１．２３４"]);
+    assert_token_surfaces(&mut worker, "AI2026", &["AI", "2026"]);
+    assert_token_surfaces(&mut worker, "ＡＩ2026", &["ＡＩ", "2026"]);
+    assert_token_surfaces(&mut worker, "k8s", &["k", "8", "s"]);
+    assert_token_surfaces(&mut worker, "abc123def", &["abc", "123", "def"]);
 
-    let raw = token_surfaces(&mut worker, "1e-3");
-    assert_eq!(raw, vec!["1e", "-", "3"]);
-
-    let merged = merge_scientific_notation_tokens(&raw);
-    assert_eq!(merged, vec!["1e-3"]);
-
-    let not_merged = merge_scientific_notation_tokens(&token_surfaces(&mut worker, "1-3"));
-    assert_eq!(not_merged, vec!["1", "-", "3"]);
+    let scientific = token_surfaces(&mut worker, "1e-3");
+    assert_ne!(scientific, vec!["1e-3"]);
+    assert!(scientific.len() > 1);
 
     Ok(())
 }
