@@ -121,6 +121,8 @@ jobs:
           - compat_target: ${{ steps.build.outputs.compat_target }}
           - compat_mode: ${{ steps.build.outputs.compat_mode }}
           - feature_schema: ${{ steps.build.outputs.feature_schema }}
+          - rules_profile: ${{ steps.build.outputs.rules_profile }}
+          - rewrite_def_included: ${{ steps.build.outputs.rewrite_def_included }}
           - normalized_pos_rows: ${{ steps.build.outputs.normalized_pos_rows }}
           - fallback_ctype_rows: ${{ steps.build.outputs.fallback_ctype_rows }}
           - fallback_cform_rows: ${{ steps.build.outputs.fallback_cform_rows }}

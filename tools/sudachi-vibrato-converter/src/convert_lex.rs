@@ -6,7 +6,11 @@ use csv::{ReaderBuilder, StringRecord, WriterBuilder};
 use crate::normalize::{normalize_cform, normalize_ctype, normalize_pos, normalize_text_or_star};
 use crate::stats::ConversionStats;
 
-pub fn convert_lexicon<R: Read, W: Write>(input: R, output: W, stats: &mut ConversionStats) -> Result<()> {
+pub fn convert_lexicon<R: Read, W: Write>(
+    input: R,
+    output: W,
+    stats: &mut ConversionStats,
+) -> Result<()> {
     let mut reader = ReaderBuilder::new()
         .has_headers(false)
         .flexible(true)
@@ -14,7 +18,8 @@ pub fn convert_lexicon<R: Read, W: Write>(input: R, output: W, stats: &mut Conve
     let mut writer = WriterBuilder::new().has_headers(false).from_writer(output);
 
     for (line_no, record) in reader.records().enumerate() {
-        let record = record.with_context(|| format!("failed to read lex row at line {}", line_no + 1))?;
+        let record =
+            record.with_context(|| format!("failed to read lex row at line {}", line_no + 1))?;
 
         if record.is_empty() {
             continue;

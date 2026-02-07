@@ -13,7 +13,8 @@ pub fn convert_unknown_dictionary<R: Read, W: Write>(input: R, output: W) -> Res
     let mut writer = WriterBuilder::new().has_headers(false).from_writer(output);
 
     for (line_no, record) in reader.records().enumerate() {
-        let record = record.with_context(|| format!("failed to read unk row at line {}", line_no + 1))?;
+        let record =
+            record.with_context(|| format!("failed to read unk row at line {}", line_no + 1))?;
 
         if record.is_empty() {
             continue;

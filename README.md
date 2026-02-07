@@ -18,11 +18,11 @@ The workflow does the following:
 3. Downloads raw dictionary sources from `sudachidict-raw`.
 4. Concatenates `small_lex.csv`, `core_lex.csv`, and `notcore_lex.csv`.
 5. Runs Rust converter tests.
-6. Converts `lex.csv`, `unk.def`, and `char.def` with Rust.
+6. Converts `lex.csv`, `unk.def`, and `char.def` with Rust and injects custom append rules.
 7. Resolves `Sudachi` version from SudachiDict `build.gradle`.
 8. Compiles a Vibrato dictionary using `daac-tools/vibrato@v0.5.2`.
 9. Runs a tokenize smoke test.
-10. Packages `system.dic.zst`, `metadata.json`, `LICENSE-2.0.txt`, and `LEGAL` into one `tar.xz`.
+10. Packages `system.dic.zst`, `metadata.json`, `LICENSE-2.0.txt`, `LEGAL`, and optional `rewrite.def` into one `tar.xz`.
 11. For scheduled runs, checks whether the latest SudachiDict tag is already released in this repository.
 12. Creates or updates the GitHub Release only when needed.
 
@@ -40,6 +40,32 @@ The workflow does the following:
 - Feature schema: `mecab9-v1`
 - Unknown or unsupported details are safely downgraded to `*`.
 - Only MeCab-minimum fields are kept for lexicon features.
+
+## Custom rule injection
+
+The converter supports optional append files:
+
+- `--char-append <PATH>` (repeatable)
+- `--unk-append <PATH>` (repeatable)
+- `--rewrite-in <PATH>`
+- `--rewrite-out <PATH>`
+- `--rewrite-append <PATH>` (repeatable, requires `rewrite-in/out`)
+
+Default release build uses profile: `rules/ipadic-numeric-merge`:
+
+- `rules/ipadic-numeric-merge/char.append.def`
+- `rules/ipadic-numeric-merge/unk.append.def`
+- `rules/ipadic-numeric-merge/rewrite.append.def`
+
+This profile improves unknown grouping for:
+
+- `123`
+- `1e3`
+- `k8s`
+- `abc123def`
+- `ＡＩ2026`
+
+Symbols (`+ - . _`) are kept split at dictionary level.
 
 ## Feature schema
 
@@ -80,6 +106,21 @@ Sudachi columns after `col12` are dropped.
 - Keep comments and blank lines.
 - Strip `NOOOVBOW` from codepoint-range lines.
 - Drop range lines that become category-less after stripping.
+- Append custom char rules from `--char-append`.
+
+## rewrite.def handling
+
+- If Sudachi `rewrite.def` exists, release build copies it and appends custom rules.
+- If it does not exist, build continues without error.
+- `rewrite.def` is bundled for training/compatibility use.
+- Vibrato tokenizer runtime dictionary lookup does not use `rewrite.def`.
+
+## Scientific notation (`1e-3`)
+
+- Dictionary-level policy keeps symbols split, so `1e-3` can still be tokenized as `1e`, `-`, `3`.
+- The converter library provides `merge_scientific_notation_tokens` for strict post-merge.
+- It merges only `[digits+e/E] [+-] [digits]` patterns (e.g., `1e - 3` -> `1e-3`).
+- It does not merge `1 - 3`.
 
 ## Latest resolution policy
 
@@ -87,6 +128,7 @@ Sudachi columns after `col12` are dropped.
 - Edition is fixed to `full`.
 - Dictionary version is parsed from the release asset name.
 - `char.def`/`unk.def` are selected from the Sudachi version referenced by that SudachiDict release.
+- `rewrite.def` is also selected when the corresponding Sudachi tag contains it.
 
 ## Release naming
 
@@ -110,6 +152,8 @@ If the same tag already exists, the workflow updates that release and replaces t
 - `compat_target`
 - `compat_mode`
 - `feature_schema`
+- `rules_profile`
+- `rewrite_def_included`
 - `normalized_pos_rows`
 - `fallback_ctype_rows`
 - `fallback_cform_rows`

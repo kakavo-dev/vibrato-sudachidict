@@ -10,6 +10,11 @@ RAW_BASE_URL="https://d2ej7fkh96fzlu.cloudfront.net/sudachidict-raw"
 COMPAT_TARGET="jpreprocess"
 COMPAT_MODE="safe-normalized"
 FEATURE_SCHEMA="mecab9-v1"
+RULES_PROFILE="ipadic-numeric-merge"
+RULES_DIR="${GITHUB_WORKSPACE:-$(pwd)}/rules/${RULES_PROFILE}"
+CHAR_APPEND_DEF="${RULES_DIR}/char.append.def"
+UNK_APPEND_DEF="${RULES_DIR}/unk.append.def"
+REWRITE_APPEND_DEF="${RULES_DIR}/rewrite.append.def"
 
 WORK_BASE="$(mktemp -d "${RUNNER_TEMP:-/tmp}/vibrato-sudachidict.XXXXXX")"
 RAW_DIR="${WORK_BASE}/raw"
@@ -43,6 +48,32 @@ decode_repo_file() {
   local out="$4"
 
   gh api "repos/${repo}/contents/${path}?ref=${ref}" --jq '.content' \
+    | tr -d '\n' \
+    | base64 --decode \
+    > "${out}"
+}
+
+decode_repo_file_optional() {
+  local repo="$1"
+  local path="$2"
+  local ref="$3"
+  local out="$4"
+  local content
+  local err_file
+  err_file="$(mktemp)"
+
+  if ! content="$(gh api "repos/${repo}/contents/${path}?ref=${ref}" --jq '.content' 2>"${err_file}")"; then
+    if grep -q "404" "${err_file}"; then
+      rm -f "${err_file}"
+      return 1
+    fi
+    cat "${err_file}" >&2
+    rm -f "${err_file}"
+    return 2
+  fi
+
+  rm -f "${err_file}"
+  printf '%s' "${content}" \
     | tr -d '\n' \
     | base64 --decode \
     > "${out}"
@@ -114,6 +145,18 @@ UNK_DEF="${BUILD_DIR}/unk.def"
 
 decode_repo_file "${SUDACHI_REPO}" "src/main/resources/char.def" "${SUDACHI_TAG}" "${CHAR_DEF_RAW}"
 decode_repo_file "${SUDACHI_REPO}" "src/main/resources/unk.def" "${SUDACHI_TAG}" "${UNK_DEF_RAW}"
+REWRITE_DEF_RAW="${BUILD_DIR}/rewrite.raw.def"
+REWRITE_DEF="${BUILD_DIR}/rewrite.def"
+HAS_REWRITE_DEF="false"
+if decode_repo_file_optional "${SUDACHI_REPO}" "src/main/resources/rewrite.def" "${SUDACHI_TAG}" "${REWRITE_DEF_RAW}"; then
+  HAS_REWRITE_DEF="true"
+else
+  status=$?
+  if [[ ${status} -ne 1 ]]; then
+    echo "[error] failed to retrieve rewrite.def from ${SUDACHI_REPO}@${SUDACHI_TAG}" >&2
+    exit "${status}"
+  fi
+fi
 
 SUDACHIDICT_LICENSE="${BUILD_DIR}/LICENSE-2.0.txt"
 SUDACHIDICT_LEGAL="${BUILD_DIR}/LEGAL"
@@ -123,14 +166,35 @@ decode_repo_file "${SUDACHIDICT_REPO}" "LEGAL" "${SUDACHIDICT_RELEASE_TAG}" "${S
 CONVERTER_MANIFEST="${GITHUB_WORKSPACE:-$(pwd)}/tools/sudachi-vibrato-converter/Cargo.toml"
 
 echo "[build] convert lex/unk/char with Rust converter"
-cargo run --release --manifest-path "${CONVERTER_MANIFEST}" -- convert \
-  --lex-in "${LEXICON_RAW_PATH}" \
-  --lex-out "${LEXICON_PATH}" \
-  --unk-in "${UNK_DEF_RAW}" \
-  --unk-out "${UNK_DEF}" \
-  --char-in "${CHAR_DEF_RAW}" \
-  --char-out "${CHAR_DEF}" \
+for required_rule in "${CHAR_APPEND_DEF}" "${UNK_APPEND_DEF}" "${REWRITE_APPEND_DEF}"; do
+  if [[ ! -f "${required_rule}" ]]; then
+    echo "[error] missing rules file: ${required_rule}" >&2
+    exit 1
+  fi
+done
+
+CONVERT_ARGS=(
+  convert
+  --lex-in "${LEXICON_RAW_PATH}"
+  --lex-out "${LEXICON_PATH}"
+  --unk-in "${UNK_DEF_RAW}"
+  --unk-out "${UNK_DEF}"
+  --char-in "${CHAR_DEF_RAW}"
+  --char-out "${CHAR_DEF}"
   --stats-out "${NORM_STATS_PATH}"
+  --char-append "${CHAR_APPEND_DEF}"
+  --unk-append "${UNK_APPEND_DEF}"
+)
+
+if [[ "${HAS_REWRITE_DEF}" == "true" ]]; then
+  CONVERT_ARGS+=(
+    --rewrite-in "${REWRITE_DEF_RAW}"
+    --rewrite-out "${REWRITE_DEF}"
+    --rewrite-append "${REWRITE_APPEND_DEF}"
+  )
+fi
+
+cargo run --release --manifest-path "${CONVERTER_MANIFEST}" -- "${CONVERT_ARGS[@]}"
 
 source "${NORM_STATS_PATH}"
 
@@ -161,6 +225,11 @@ mkdir -p "${BUNDLE_DIR}"
 cp "${SYSTEM_DIC_PATH}" "${BUNDLE_DIR}/system.dic.zst"
 cp "${SUDACHIDICT_LICENSE}" "${BUNDLE_DIR}/LICENSE-2.0.txt"
 cp "${SUDACHIDICT_LEGAL}" "${BUNDLE_DIR}/LEGAL"
+REWRITE_DEF_INCLUDED=false
+if [[ -f "${REWRITE_DEF}" ]]; then
+  cp "${REWRITE_DEF}" "${BUNDLE_DIR}/rewrite.def"
+  REWRITE_DEF_INCLUDED=true
+fi
 
 BUILT_AT_UTC="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 cat > "${BUNDLE_DIR}/metadata.json" <<EOF_JSON
@@ -176,6 +245,8 @@ cat > "${BUNDLE_DIR}/metadata.json" <<EOF_JSON
   "compat_target": "${COMPAT_TARGET}",
   "compat_mode": "${COMPAT_MODE}",
   "feature_schema": "${FEATURE_SCHEMA}",
+  "rules_profile": "${RULES_PROFILE}",
+  "rewrite_def_included": ${REWRITE_DEF_INCLUDED},
   "normalized_pos_rows": ${normalized_pos_rows},
   "fallback_ctype_rows": ${fallback_ctype_rows},
   "fallback_cform_rows": ${fallback_cform_rows},
@@ -205,6 +276,8 @@ if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
     echo "compat_target=${COMPAT_TARGET}"
     echo "compat_mode=${COMPAT_MODE}"
     echo "feature_schema=${FEATURE_SCHEMA}"
+    echo "rules_profile=${RULES_PROFILE}"
+    echo "rewrite_def_included=${REWRITE_DEF_INCLUDED}"
     echo "normalized_pos_rows=${normalized_pos_rows}"
     echo "fallback_ctype_rows=${fallback_ctype_rows}"
     echo "fallback_cform_rows=${fallback_cform_rows}"

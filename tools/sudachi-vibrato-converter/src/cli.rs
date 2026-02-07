@@ -31,4 +31,14 @@ pub struct ConvertArgs {
     pub char_out: PathBuf,
     #[arg(long)]
     pub stats_out: PathBuf,
+    #[arg(long = "char-append")]
+    pub char_append: Vec<PathBuf>,
+    #[arg(long = "unk-append")]
+    pub unk_append: Vec<PathBuf>,
+    #[arg(long, requires = "rewrite_out")]
+    pub rewrite_in: Option<PathBuf>,
+    #[arg(long, requires = "rewrite_in")]
+    pub rewrite_out: Option<PathBuf>,
+    #[arg(long = "rewrite-append", requires_all = ["rewrite_in", "rewrite_out"])]
+    pub rewrite_append: Vec<PathBuf>,
 }

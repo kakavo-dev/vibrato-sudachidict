@@ -1,10 +1,13 @@
+use std::fs;
 use std::io::Cursor;
 
 use anyhow::Result;
 use csv::ReaderBuilder;
 use sudachi_vibrato_converter::{
-    convert_char_definition, convert_lexicon, convert_unknown_dictionary, ConversionStats,
+    append_text_files_as_lines, append_unknown_definitions, convert_char_definition,
+    convert_lexicon, convert_unknown_dictionary, write_rewrite_definition, ConversionStats,
 };
+use tempfile::tempdir;
 
 #[test]
 fn lex_uses_pos_5_to_8_and_reading_11() -> Result<()> {
@@ -105,6 +108,85 @@ fn char_definition_strips_nooovbow_entries() -> Result<()> {
     assert!(output.contains("0x0041..0x005A ALPHA #A-Z\n"));
     assert!(!output.contains("0x0030..0x0039"));
     assert!(output.contains("DEFAULT 0 1 0\n"));
+    Ok(())
+}
+
+#[test]
+fn char_definition_can_append_custom_rules() -> Result<()> {
+    let input = "DEFAULT 0 1 0\n0x0030..0x0039 NUMERIC NOOOVBOW\n";
+    let append = "0x0030..0x0039 NUMERIC ALPHA\n0xFF10..0xFF19 NUMERIC ALPHA\n";
+    let dir = tempdir()?;
+    let append_path = dir.path().join("char.append.def");
+    fs::write(&append_path, append)?;
+
+    let mut output = Vec::new();
+    convert_char_definition(Cursor::new(input.as_bytes()), &mut output)?;
+    append_text_files_as_lines(&mut output, &[append_path])?;
+
+    let output = String::from_utf8(output)?;
+    assert!(!output.contains("NOOOVBOW"));
+    assert!(output.contains("0x0030..0x0039 NUMERIC ALPHA\n"));
+    assert!(output.contains("0xFF10..0xFF19 NUMERIC ALPHA\n"));
+    Ok(())
+}
+
+#[test]
+fn unk_definition_can_append_custom_rows_with_normalization() -> Result<()> {
+    let base = "ALPHA,0,0,100,名詞,普通名詞,一般,*,*,*\n";
+    let append = "NUMERIC,0,0,100,名詞,数,*,*,*,*\n";
+    let dir = tempdir()?;
+    let append_path = dir.path().join("unk.append.def");
+    fs::write(&append_path, append)?;
+
+    let mut output = Vec::new();
+    convert_unknown_dictionary(Cursor::new(base.as_bytes()), &mut output)?;
+    append_unknown_definitions(&mut output, &[append_path])?;
+
+    let rows = parse_csv_rows(&output)?;
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[1][0], "NUMERIC");
+    assert_eq!(rows[1][4], "名詞");
+    assert_eq!(rows[1][5], "一般");
+    assert_eq!(rows[1][10], "*");
+    Ok(())
+}
+
+#[test]
+fn rewrite_definition_is_copied_and_appended() -> Result<()> {
+    let dir = tempdir()?;
+    let rewrite_in = dir.path().join("rewrite.in.def");
+    let rewrite_out = dir.path().join("rewrite.out.def");
+    let append = dir.path().join("rewrite.append.def");
+
+    fs::write(
+        &rewrite_in,
+        "[unigram rewrite]\nfoo,*,*,* bar,*,*,*\n[left rewrite]\n",
+    )?;
+    fs::write(&append, "# custom\n[right rewrite]\na,b,c d,e,f\n")?;
+
+    write_rewrite_definition(&rewrite_in, &rewrite_out, &[append])?;
+
+    let output = fs::read_to_string(&rewrite_out)?;
+    assert!(output.contains("[unigram rewrite]\n"));
+    assert!(output.contains("[left rewrite]\n"));
+    assert!(output.contains("# custom\n"));
+    assert!(output.contains("[right rewrite]\n"));
+    assert!(output.contains("a,b,c d,e,f\n"));
+    Ok(())
+}
+
+#[test]
+fn rewrite_definition_copy_works_without_append_files() -> Result<()> {
+    let dir = tempdir()?;
+    let rewrite_in = dir.path().join("rewrite.in.def");
+    let rewrite_out = dir.path().join("rewrite.out.def");
+
+    let input = "[unigram rewrite]\nx,*,* y,*,*\n";
+    fs::write(&rewrite_in, input)?;
+
+    write_rewrite_definition(&rewrite_in, &rewrite_out, &[])?;
+    let output = fs::read_to_string(&rewrite_out)?;
+    assert_eq!(output, input);
     Ok(())
 }
 

@@ -1,0 +1,2 @@
+# Custom rewrite rules can be appended here when rewrite.def is available.
+# Note: rewrite.def is for training/compatibility, not tokenizer runtime behavior.

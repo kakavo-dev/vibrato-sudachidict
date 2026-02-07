@@ -1,10 +1,13 @@
+use std::fs;
 use std::io::Cursor;
 
 use anyhow::{anyhow, Result};
 use jpreprocess_core::word_entry::WordEntry;
 use sudachi_vibrato_converter::{
-    convert_char_definition, convert_lexicon, convert_unknown_dictionary, ConversionStats,
+    append_text_files_as_lines, append_unknown_definitions, convert_char_definition,
+    convert_lexicon, convert_unknown_dictionary, merge_scientific_notation_tokens, ConversionStats,
 };
+use tempfile::tempdir;
 use vibrato::dictionary::{LexType, SystemDictionaryBuilder};
 use vibrato::Tokenizer;
 
@@ -56,7 +59,10 @@ fn vibrato_and_jpreprocess_can_consume_converted_outputs() -> Result<()> {
     for sentence in ["東京都に行く", "ＡＩ"] {
         worker.reset_sentence(sentence);
         worker.tokenize();
-        assert!(worker.num_tokens() > 0, "no tokens for sentence: {sentence}");
+        assert!(
+            worker.num_tokens() > 0,
+            "no tokens for sentence: {sentence}"
+        );
 
         for i in 0..worker.num_tokens() {
             let token = worker.token(i);
@@ -100,4 +106,93 @@ fn mecab9_feature_to_jpreprocess12(feature: &str) -> Result<Vec<String>> {
         "*".to_string(),
         "*".to_string(),
     ])
+}
+
+#[test]
+fn ipadic_numeric_merge_rules_group_numeric_and_alnum_unknowns() -> Result<()> {
+    let lex_input = "既知語,0,0,100,既知語,名詞,普通名詞,一般,*,*,*,キチゴ,既知語\n";
+    let unk_input = concat!(
+        "DEFAULT,0,0,100,補助記号,一般,*,*,*,*\n",
+        "ALPHA,0,0,100,名詞,普通名詞,一般,*,*,*\n",
+        "NUMERIC,0,0,100,名詞,数,*,*,*,*,*\n"
+    );
+    let char_input = concat!(
+        "DEFAULT 0 1 0\n",
+        "ALPHA 1 1 0\n",
+        "NUMERIC 1 1 0\n",
+        "SPACE 0 1 0\n",
+        "0x0020 SPACE\n",
+        "0x0030..0x0039 NUMERIC\n",
+        "0x0061..0x007A ALPHA\n",
+        "0x0041..0x005A ALPHA\n",
+        "0xFF21..0xFF3A ALPHA\n",
+        "0xFF41..0xFF5A ALPHA\n"
+    );
+    let char_append = "0x0030..0x0039 NUMERIC ALPHA\n0xFF10..0xFF19 NUMERIC ALPHA\n";
+    let unk_append = "ALPHA,0,0,100,名詞,普通名詞,一般,*,*,*\n";
+    let matrix_def = "1 1\n0 0 0\n";
+
+    let mut stats = ConversionStats::default();
+    let mut lex_out = Vec::new();
+    convert_lexicon(Cursor::new(lex_input.as_bytes()), &mut lex_out, &mut stats)?;
+
+    let mut unk_out = Vec::new();
+    convert_unknown_dictionary(Cursor::new(unk_input.as_bytes()), &mut unk_out)?;
+
+    let mut char_out = Vec::new();
+    convert_char_definition(Cursor::new(char_input.as_bytes()), &mut char_out)?;
+
+    let dir = tempdir()?;
+    let char_append_path = dir.path().join("char.append.def");
+    let unk_append_path = dir.path().join("unk.append.def");
+    fs::write(&char_append_path, char_append)?;
+    fs::write(&unk_append_path, unk_append)?;
+    append_text_files_as_lines(&mut char_out, &[char_append_path])?;
+    append_unknown_definitions(&mut unk_out, &[unk_append_path])?;
+
+    let dict = SystemDictionaryBuilder::from_readers(
+        lex_out.as_slice(),
+        matrix_def.as_bytes(),
+        char_out.as_slice(),
+        unk_out.as_slice(),
+    )?;
+    let tokenizer = Tokenizer::new(dict);
+    let mut worker = tokenizer.new_worker();
+
+    assert_token_surfaces(&mut worker, "123", &["123"]);
+    assert_token_surfaces(&mut worker, "1e3", &["1e3"]);
+    assert_token_surfaces(&mut worker, "k8s", &["k8s"]);
+    assert_token_surfaces(&mut worker, "abc123def", &["abc123def"]);
+    assert_token_surfaces(&mut worker, "ＡＩ2026", &["ＡＩ2026"]);
+
+    let raw = token_surfaces(&mut worker, "1e-3");
+    assert_eq!(raw, vec!["1e", "-", "3"]);
+
+    let merged = merge_scientific_notation_tokens(&raw);
+    assert_eq!(merged, vec!["1e-3"]);
+
+    let not_merged = merge_scientific_notation_tokens(&token_surfaces(&mut worker, "1-3"));
+    assert_eq!(not_merged, vec!["1", "-", "3"]);
+
+    Ok(())
+}
+
+fn assert_token_surfaces(
+    worker: &mut vibrato::tokenizer::worker::Worker<'_>,
+    sentence: &str,
+    expected: &[&str],
+) {
+    let actual = token_surfaces(worker, sentence);
+    assert_eq!(actual, expected);
+}
+
+fn token_surfaces(
+    worker: &mut vibrato::tokenizer::worker::Worker<'_>,
+    sentence: &str,
+) -> Vec<String> {
+    worker.reset_sentence(sentence);
+    worker.tokenize();
+    (0..worker.num_tokens())
+        .map(|i| worker.token(i).surface().to_string())
+        .collect()
 }
