@@ -1,5 +1,6 @@
 use std::fs;
 use std::io::Cursor;
+use std::path::Path;
 
 use anyhow::{anyhow, Result};
 use jpreprocess_core::word_entry::WordEntry;
@@ -137,6 +138,26 @@ fn ipadic_numeric_merge_rules_prioritize_numeric_and_split_alpha_numeric() -> Re
         "0x0030..0x0039 NUMERIC\n",
         "0xFF10..0xFF19 NUMERIC\n"
     );
+    let lex_append_raw = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("rules")
+            .join("ipadic-numeric-merge")
+            .join("lex.append.csv"),
+    )?;
+    let lex_append = lex_append_raw
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| {
+            let mut fields: Vec<&str> = line.split(',').collect();
+            fields[1] = "0";
+            fields[2] = "0";
+            fields.join(",")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
     let unk_append = "# empty on purpose\n";
     let matrix_def = "1 1\n0 0 0\n";
 
@@ -151,10 +172,13 @@ fn ipadic_numeric_merge_rules_prioritize_numeric_and_split_alpha_numeric() -> Re
     convert_char_definition(Cursor::new(char_input.as_bytes()), &mut char_out)?;
 
     let dir = tempdir()?;
+    let lex_append_path = dir.path().join("lex.append.csv");
     let char_append_path = dir.path().join("char.append.def");
     let unk_append_path = dir.path().join("unk.append.def");
+    fs::write(&lex_append_path, lex_append)?;
     fs::write(&char_append_path, char_append)?;
     fs::write(&unk_append_path, unk_append)?;
+    append_text_files_as_lines(&mut lex_out, &[lex_append_path])?;
     append_text_files_as_lines(&mut char_out, &[char_append_path])?;
     append_unknown_definitions(&mut unk_out, &[unk_append_path])?;
 
@@ -171,36 +195,62 @@ fn ipadic_numeric_merge_rules_prioritize_numeric_and_split_alpha_numeric() -> Re
     assert_token_pos12(&mut worker, "123", 0, "名詞", "数");
     assert_token_pos12(&mut worker, "123", 1, "名詞", "数");
     assert_token_pos12(&mut worker, "123", 2, "名詞", "数");
+    assert_token_read_pron(&mut worker, "123", 0, "イチ", "イチ");
+    assert_token_read_pron(&mut worker, "123", 1, "ニ", "ニ");
+    assert_token_read_pron(&mut worker, "123", 2, "サン", "サン");
     assert_token_surfaces(&mut worker, "１２３", &["１", "２", "３"]);
     assert_token_pos12(&mut worker, "１２３", 0, "名詞", "数");
     assert_token_pos12(&mut worker, "１２３", 1, "名詞", "数");
     assert_token_pos12(&mut worker, "１２３", 2, "名詞", "数");
+    assert_token_read_pron(&mut worker, "１２３", 0, "イチ", "イチ");
+    assert_token_read_pron(&mut worker, "１２３", 1, "ニ", "ニ");
+    assert_token_read_pron(&mut worker, "１２３", 2, "サン", "サン");
     assert_token_surfaces(&mut worker, "1.234", &["1", ".", "2", "3", "4"]);
     assert_token_pos12(&mut worker, "1.234", 0, "名詞", "数");
     assert_token_pos12(&mut worker, "1.234", 2, "名詞", "数");
     assert_token_pos12(&mut worker, "1.234", 3, "名詞", "数");
     assert_token_pos12(&mut worker, "1.234", 4, "名詞", "数");
+    assert_token_read_pron(&mut worker, "1.234", 0, "イチ", "イチ");
+    assert_token_read_pron(&mut worker, "1.234", 2, "ニ", "ニ");
+    assert_token_read_pron(&mut worker, "1.234", 3, "サン", "サン");
+    assert_token_read_pron(&mut worker, "1.234", 4, "ヨン", "ヨン");
     assert_token_surfaces(&mut worker, "１．２３４", &["１", "．", "２", "３", "４"]);
     assert_token_pos12(&mut worker, "１．２３４", 0, "名詞", "数");
     assert_token_pos12(&mut worker, "１．２３４", 2, "名詞", "数");
     assert_token_pos12(&mut worker, "１．２３４", 3, "名詞", "数");
     assert_token_pos12(&mut worker, "１．２３４", 4, "名詞", "数");
+    assert_token_read_pron(&mut worker, "１．２３４", 0, "イチ", "イチ");
+    assert_token_read_pron(&mut worker, "１．２３４", 2, "ニ", "ニ");
+    assert_token_read_pron(&mut worker, "１．２３４", 3, "サン", "サン");
+    assert_token_read_pron(&mut worker, "１．２３４", 4, "ヨン", "ヨン");
     assert_token_surfaces(&mut worker, "AI2026", &["AI", "2", "0", "2", "6"]);
     assert_token_pos12(&mut worker, "AI2026", 1, "名詞", "数");
     assert_token_pos12(&mut worker, "AI2026", 2, "名詞", "数");
     assert_token_pos12(&mut worker, "AI2026", 3, "名詞", "数");
     assert_token_pos12(&mut worker, "AI2026", 4, "名詞", "数");
+    assert_token_read_pron(&mut worker, "AI2026", 1, "ニ", "ニ");
+    assert_token_read_pron(&mut worker, "AI2026", 2, "ゼロ", "ゼロ");
+    assert_token_read_pron(&mut worker, "AI2026", 3, "ニ", "ニ");
+    assert_token_read_pron(&mut worker, "AI2026", 4, "ロク", "ロク");
     assert_token_surfaces(&mut worker, "ＡＩ2026", &["ＡＩ", "2", "0", "2", "6"]);
     assert_token_pos12(&mut worker, "ＡＩ2026", 1, "名詞", "数");
     assert_token_pos12(&mut worker, "ＡＩ2026", 2, "名詞", "数");
     assert_token_pos12(&mut worker, "ＡＩ2026", 3, "名詞", "数");
     assert_token_pos12(&mut worker, "ＡＩ2026", 4, "名詞", "数");
+    assert_token_read_pron(&mut worker, "ＡＩ2026", 1, "ニ", "ニ");
+    assert_token_read_pron(&mut worker, "ＡＩ2026", 2, "ゼロ", "ゼロ");
+    assert_token_read_pron(&mut worker, "ＡＩ2026", 3, "ニ", "ニ");
+    assert_token_read_pron(&mut worker, "ＡＩ2026", 4, "ロク", "ロク");
     assert_token_surfaces(&mut worker, "k8s", &["k", "8", "s"]);
     assert_token_pos12(&mut worker, "k8s", 1, "名詞", "数");
+    assert_token_read_pron(&mut worker, "k8s", 1, "ハチ", "ハチ");
     assert_token_surfaces(&mut worker, "abc123def", &["abc", "1", "2", "3", "def"]);
     assert_token_pos12(&mut worker, "abc123def", 1, "名詞", "数");
     assert_token_pos12(&mut worker, "abc123def", 2, "名詞", "数");
     assert_token_pos12(&mut worker, "abc123def", 3, "名詞", "数");
+    assert_token_read_pron(&mut worker, "abc123def", 1, "イチ", "イチ");
+    assert_token_read_pron(&mut worker, "abc123def", 2, "ニ", "ニ");
+    assert_token_read_pron(&mut worker, "abc123def", 3, "サン", "サン");
 
     let scientific = token_surfaces(&mut worker, "1e-3");
     assert_ne!(scientific, vec!["1e-3"]);
@@ -247,4 +297,24 @@ fn assert_token_pos12(
     assert!(fields.len() >= 2, "unexpected feature format: {feature}");
     assert_eq!(fields[0], expected_pos1, "pos1 mismatch for {sentence}");
     assert_eq!(fields[1], expected_pos2, "pos2 mismatch for {sentence}");
+}
+
+fn assert_token_read_pron(
+    worker: &mut vibrato::tokenizer::worker::Worker<'_>,
+    sentence: &str,
+    token_index: usize,
+    expected_read: &str,
+    expected_pron: &str,
+) {
+    worker.reset_sentence(sentence);
+    worker.tokenize();
+    assert!(
+        token_index < worker.num_tokens(),
+        "token index {token_index} out of range for sentence: {sentence}"
+    );
+    let feature = worker.token(token_index).feature();
+    let fields: Vec<&str> = feature.split(',').collect();
+    assert!(fields.len() >= 9, "unexpected feature format: {feature}");
+    assert_eq!(fields[7], expected_read, "read mismatch for {sentence}");
+    assert_eq!(fields[8], expected_pron, "pron mismatch for {sentence}");
 }

@@ -31,6 +31,8 @@ pub struct ConvertArgs {
     pub char_out: PathBuf,
     #[arg(long)]
     pub stats_out: PathBuf,
+    #[arg(long = "lex-append")]
+    pub lex_append: Vec<PathBuf>,
     #[arg(long = "char-append")]
     pub char_append: Vec<PathBuf>,
     #[arg(long = "unk-append")]

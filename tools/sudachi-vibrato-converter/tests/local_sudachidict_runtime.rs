@@ -25,30 +25,52 @@ fn local_sudachidict_runtime_smoke_test_if_installed() -> Result<()> {
     assert_token_pos12(&mut worker, "123", 0, "名詞", "数");
     assert_token_pos12(&mut worker, "123", 1, "名詞", "数");
     assert_token_pos12(&mut worker, "123", 2, "名詞", "数");
+    assert_token_read_pron(&mut worker, "123", 0, "イチ", "イチ");
+    assert_token_read_pron(&mut worker, "123", 1, "ニ", "ニ");
+    assert_token_read_pron(&mut worker, "123", 2, "サン", "サン");
     assert_token_surfaces(&mut worker, "１２３", &["１", "２", "３"]);
     assert_token_pos12(&mut worker, "１２３", 0, "名詞", "数");
     assert_token_pos12(&mut worker, "１２３", 1, "名詞", "数");
     assert_token_pos12(&mut worker, "１２３", 2, "名詞", "数");
+    assert_token_read_pron(&mut worker, "１２３", 0, "イチ", "イチ");
+    assert_token_read_pron(&mut worker, "１２３", 1, "ニ", "ニ");
+    assert_token_read_pron(&mut worker, "１２３", 2, "サン", "サン");
     assert_token_surfaces(&mut worker, "1.234", &["1", ".", "2", "3", "4"]);
     assert_token_pos12(&mut worker, "1.234", 0, "名詞", "数");
     assert_token_pos12(&mut worker, "1.234", 2, "名詞", "数");
     assert_token_pos12(&mut worker, "1.234", 3, "名詞", "数");
     assert_token_pos12(&mut worker, "1.234", 4, "名詞", "数");
+    assert_token_read_pron(&mut worker, "1.234", 0, "イチ", "イチ");
+    assert_token_read_pron(&mut worker, "1.234", 2, "ニ", "ニ");
+    assert_token_read_pron(&mut worker, "1.234", 3, "サン", "サン");
+    assert_token_read_pron(&mut worker, "1.234", 4, "ヨン", "ヨン");
     assert_token_surfaces(&mut worker, "１．２３４", &["１", "．", "２", "３", "４"]);
     assert_token_pos12(&mut worker, "１．２３４", 0, "名詞", "数");
     assert_token_pos12(&mut worker, "１．２３４", 2, "名詞", "数");
     assert_token_pos12(&mut worker, "１．２３４", 3, "名詞", "数");
     assert_token_pos12(&mut worker, "１．２３４", 4, "名詞", "数");
+    assert_token_read_pron(&mut worker, "１．２３４", 0, "イチ", "イチ");
+    assert_token_read_pron(&mut worker, "１．２３４", 2, "ニ", "ニ");
+    assert_token_read_pron(&mut worker, "１．２３４", 3, "サン", "サン");
+    assert_token_read_pron(&mut worker, "１．２３４", 4, "ヨン", "ヨン");
     assert_token_surfaces(&mut worker, "AI2026", &["AI", "2", "0", "2", "6"]);
     assert_token_pos12(&mut worker, "AI2026", 1, "名詞", "数");
     assert_token_pos12(&mut worker, "AI2026", 2, "名詞", "数");
     assert_token_pos12(&mut worker, "AI2026", 3, "名詞", "数");
     assert_token_pos12(&mut worker, "AI2026", 4, "名詞", "数");
+    assert_token_read_pron(&mut worker, "AI2026", 1, "ニ", "ニ");
+    assert_token_read_pron(&mut worker, "AI2026", 2, "ゼロ", "ゼロ");
+    assert_token_read_pron(&mut worker, "AI2026", 3, "ニ", "ニ");
+    assert_token_read_pron(&mut worker, "AI2026", 4, "ロク", "ロク");
     assert_token_surfaces(&mut worker, "ＡＩ2026", &["ＡＩ", "2", "0", "2", "6"]);
     assert_token_pos12(&mut worker, "ＡＩ2026", 1, "名詞", "数");
     assert_token_pos12(&mut worker, "ＡＩ2026", 2, "名詞", "数");
     assert_token_pos12(&mut worker, "ＡＩ2026", 3, "名詞", "数");
     assert_token_pos12(&mut worker, "ＡＩ2026", 4, "名詞", "数");
+    assert_token_read_pron(&mut worker, "ＡＩ2026", 1, "ニ", "ニ");
+    assert_token_read_pron(&mut worker, "ＡＩ2026", 2, "ゼロ", "ゼロ");
+    assert_token_read_pron(&mut worker, "ＡＩ2026", 3, "ニ", "ニ");
+    assert_token_read_pron(&mut worker, "ＡＩ2026", 4, "ロク", "ロク");
 
     let scientific = token_surfaces(&mut worker, "1e-3");
     assert_ne!(scientific, vec!["1e-3"]);
@@ -128,4 +150,24 @@ fn assert_token_pos12(
     assert!(fields.len() >= 2, "unexpected feature format: {feature}");
     assert_eq!(fields[0], expected_pos1, "pos1 mismatch for {sentence}");
     assert_eq!(fields[1], expected_pos2, "pos2 mismatch for {sentence}");
+}
+
+fn assert_token_read_pron(
+    worker: &mut vibrato::tokenizer::worker::Worker<'_>,
+    sentence: &str,
+    token_index: usize,
+    expected_read: &str,
+    expected_pron: &str,
+) {
+    worker.reset_sentence(sentence);
+    worker.tokenize();
+    assert!(
+        token_index < worker.num_tokens(),
+        "token index {token_index} out of range for sentence: {sentence}"
+    );
+    let feature = worker.token(token_index).feature();
+    let fields: Vec<&str> = feature.split(',').collect();
+    assert!(fields.len() >= 9, "unexpected feature format: {feature}");
+    assert_eq!(fields[7], expected_read, "read mismatch for {sentence}");
+    assert_eq!(fields[8], expected_pron, "pron mismatch for {sentence}");
 }

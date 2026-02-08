@@ -45,6 +45,7 @@ The workflow does the following:
 
 The converter supports optional append files:
 
+- `--lex-append <PATH>` (repeatable)
 - `--char-append <PATH>` (repeatable)
 - `--unk-append <PATH>` (repeatable)
 - `--rewrite-in <PATH>`
@@ -53,6 +54,7 @@ The converter supports optional append files:
 
 Default release build uses profile: `rules/ipadic-numeric-merge`:
 
+- `rules/ipadic-numeric-merge/lex.append.csv`
 - `rules/ipadic-numeric-merge/char.append.def`
 - `rules/ipadic-numeric-merge/unk.append.def`
 - `rules/ipadic-numeric-merge/rewrite.append.def`
@@ -61,6 +63,7 @@ This profile is a minimal override for `jpreprocess` numeric reading compatibili
 
 - Keep Sudachi defaults as much as possible.
 - Disable unknown grouping for `NUMERIC` (`NUMERIC 1 0 0`) so digits are split per character.
+- Add known one-character digit entries via `lex.append.csv` so each digit token has `read/pron`.
 - Keep alpha-numeric boundaries split.
 - Keep `.` / `．` as Sudachi default category (`SYMBOL`) instead of forcing `NUMERIC`.
 - Keep `unk.append.def` empty to avoid redundant unknown definitions.
@@ -72,6 +75,7 @@ Examples:
 - `AI2026` -> `AI`, `2`, `0`, `2`, `6`
 - `ＡＩ2026` -> `ＡＩ`, `2`, `0`, `2`, `6`
 - `1e-3` stays non-merged (not a single token).
+- Digit token readings are provided per token (e.g. `1/１ -> イチ`, `0/０ -> ゼロ`).
 
 ## Local runtime test with real SudachiDict
 
@@ -125,6 +129,7 @@ Source mapping:
 - `base`: Sudachi `col4` (empty => `*`)
 - `read`: Sudachi `col11` (empty => `*`)
 - `pron`: same as `read`
+- Rows passed by `--lex-append` are appended as pre-normalized MeCab-9 rows.
 
 Sudachi columns after `col12` are dropped.
 

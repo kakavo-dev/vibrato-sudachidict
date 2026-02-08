@@ -18,8 +18,9 @@ fn main() -> Result<()> {
             let mut stats = ConversionStats::default();
 
             let lex_in = BufReader::new(File::open(&args.lex_in)?);
-            let lex_out = BufWriter::new(File::create(&args.lex_out)?);
-            convert_lexicon(lex_in, lex_out, &mut stats)?;
+            let mut lex_out = BufWriter::new(File::create(&args.lex_out)?);
+            convert_lexicon(lex_in, &mut lex_out, &mut stats)?;
+            append_text_files_as_lines(&mut lex_out, &args.lex_append)?;
 
             let unk_in = BufReader::new(File::open(&args.unk_in)?);
             let mut unk_out = BufWriter::new(File::create(&args.unk_out)?);

@@ -12,6 +12,7 @@ COMPAT_MODE="safe-normalized"
 FEATURE_SCHEMA="mecab9-v1"
 RULES_PROFILE="ipadic-numeric-merge"
 RULES_DIR="${GITHUB_WORKSPACE:-$(pwd)}/rules/${RULES_PROFILE}"
+LEX_APPEND_CSV="${RULES_DIR}/lex.append.csv"
 CHAR_APPEND_DEF="${RULES_DIR}/char.append.def"
 UNK_APPEND_DEF="${RULES_DIR}/unk.append.def"
 REWRITE_APPEND_DEF="${RULES_DIR}/rewrite.append.def"
@@ -166,7 +167,7 @@ decode_repo_file "${SUDACHIDICT_REPO}" "LEGAL" "${SUDACHIDICT_RELEASE_TAG}" "${S
 CONVERTER_MANIFEST="${GITHUB_WORKSPACE:-$(pwd)}/tools/sudachi-vibrato-converter/Cargo.toml"
 
 echo "[build] convert lex/unk/char with Rust converter"
-for required_rule in "${CHAR_APPEND_DEF}" "${UNK_APPEND_DEF}" "${REWRITE_APPEND_DEF}"; do
+for required_rule in "${LEX_APPEND_CSV}" "${CHAR_APPEND_DEF}" "${UNK_APPEND_DEF}" "${REWRITE_APPEND_DEF}"; do
   if [[ ! -f "${required_rule}" ]]; then
     echo "[error] missing rules file: ${required_rule}" >&2
     exit 1
@@ -177,6 +178,7 @@ CONVERT_ARGS=(
   convert
   --lex-in "${LEXICON_RAW_PATH}"
   --lex-out "${LEXICON_PATH}"
+  --lex-append "${LEX_APPEND_CSV}"
   --unk-in "${UNK_DEF_RAW}"
   --unk-out "${UNK_DEF}"
   --char-in "${CHAR_DEF_RAW}"
