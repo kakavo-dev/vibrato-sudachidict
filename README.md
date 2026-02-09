@@ -23,15 +23,16 @@ The workflow does the following:
 8. Compiles a Vibrato dictionary using `daac-tools/vibrato@v0.5.2`.
 9. Runs a tokenize smoke test.
 10. Packages `system.dic.zst`, `metadata.json`, `LICENSE-2.0.txt`, `LEGAL`, and optional `rewrite.def` into one `tar.xz`.
-11. For scheduled runs, checks whether the latest SudachiDict tag is already released in this repository.
+11. For scheduled runs, compares the latest SudachiDict date with the latest released `full` dictionary date in this repository.
 12. Creates or updates the GitHub Release only when needed.
 
 ## Automatic update detection
 
 - GitHub Actions cannot directly subscribe to external repository release events.
 - This repository polls `WorksApplications/SudachiDict` once per day.
-- If the derived release tag already exists, the workflow exits via a skip job.
-- Manual runs always build and upload with `--clobber`, even when the tag already exists.
+- For scheduled runs, the workflow extracts `YYYYMMDD` from `sudachi-<YYYYMMDD>-full-vibrato-v0_5_2` release tags (published releases only, excluding draft/prerelease) and computes the max released date.
+- If upstream `DICT_VERSION` is less than or equal to that max released date, the workflow exits via a skip job.
+- Manual runs always build and upload with `--clobber`, even when the date is unchanged.
 
 ## Compatibility policy
 

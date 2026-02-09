@@ -17,6 +17,7 @@ jobs:
       should_build: ${{ steps.precheck.outputs.should_build }}
       candidate_release_tag: ${{ steps.precheck.outputs.candidate_release_tag }}
       dict_version: ${{ steps.precheck.outputs.dict_version }}
+      latest_released_dict_version: ${{ steps.precheck.outputs.latest_released_dict_version }}
       reason: ${{ steps.precheck.outputs.reason }}
     steps:
       - name: Resolve latest SudachiDict and build decision
@@ -43,33 +44,39 @@ jobs:
             exit 1
           fi
 
+          LATEST_RELEASED_DICT_VERSION="$(
+            gh api --paginate "repos/${{ github.repository }}/releases?per_page=100" \
+              --jq '.[] | select((.draft | not) and (.prerelease | not)) | .tag_name' \
+              | sed -nE 's/^sudachi-([0-9]{8})-full-vibrato-v0_5_2$/\1/p' \
+              | sort -nr \
+              | head -n 1
+          )"
+
           RELEASE_TAG="sudachi-${DICT_VERSION}-full-vibrato-v0_5_2"
-          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            TAG_EXISTS="true"
-          else
-            TAG_EXISTS="false"
-          fi
 
           if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
             SHOULD_BUILD="true"
             REASON="manual_dispatch"
-          elif [[ "${TAG_EXISTS}" == "false" ]]; then
-            SHOULD_BUILD="true"
-            REASON="new_release_detected"
-          else
+          elif [[ -n "${LATEST_RELEASED_DICT_VERSION}" && "${DICT_VERSION}" -le "${LATEST_RELEASED_DICT_VERSION}" ]]; then
             SHOULD_BUILD="false"
-            REASON="already_released"
+            REASON="dict_date_not_updated"
+          else
+            SHOULD_BUILD="true"
+            REASON="newer_dict_date_detected"
           fi
 
           {
             echo "should_build=${SHOULD_BUILD}"
             echo "candidate_release_tag=${RELEASE_TAG}"
             echo "dict_version=${DICT_VERSION}"
+            echo "latest_released_dict_version=${LATEST_RELEASED_DICT_VERSION}"
             echo "reason=${REASON}"
           } >> "${GITHUB_OUTPUT}"
 
           echo "should_build=${SHOULD_BUILD}"
           echo "candidate_release_tag=${RELEASE_TAG}"
+          echo "dict_version=${DICT_VERSION}"
+          echo "latest_released_dict_version=${LATEST_RELEASED_DICT_VERSION}"
           echo "reason=${REASON}"
 
   release:
@@ -158,9 +165,10 @@ jobs:
     if: ${{ needs.precheck.outputs.should_build != 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Skip build when latest SudachiDict was already released
+      - name: Skip build when SudachiDict date is not updated
         run: |
-          echo "No new SudachiDict release; skipped."
+          echo "SudachiDict date is not updated; skipped."
           echo "candidate_release_tag=${{ needs.precheck.outputs.candidate_release_tag }}"
           echo "dict_version=${{ needs.precheck.outputs.dict_version }}"
+          echo "latest_released_dict_version=${{ needs.precheck.outputs.latest_released_dict_version }}"
           echo "reason=${{ needs.precheck.outputs.reason }}"
